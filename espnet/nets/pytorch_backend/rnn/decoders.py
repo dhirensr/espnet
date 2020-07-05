@@ -336,11 +336,12 @@ class Decoder(torch.nn.Module, ScorerInterface):
             lpz = [lpz] * self.num_encs
 
         for idx in range(self.num_encs):
-            logging.info(
-                "Number of Encoder:{}; enc{}: input lengths: {}.".format(
-                    self.num_encs, idx + 1, h[0].size(0)
-                )
-            )
+            pass
+            # logging.info(
+            #     "Number of Encoder:{}; enc{}: input lengths: {}.".format(
+            #         self.num_encs, idx + 1, h[0].size(0)
+            #     )
+            # )
         att_idx = min(strm_idx, len(self.att) - 1)
         # initialization
         c_list = [self.zero_state(h[0].unsqueeze(0))]
@@ -380,8 +381,8 @@ class Decoder(torch.nn.Module, ScorerInterface):
             y = char_list.index(recog_args.tgt_lang)
         else:
             y = self.sos
-        logging.info("<sos> index: " + str(y))
-        logging.info("<sos> mark: " + char_list[y])
+        #logging.info("<sos> index: " + str(y))
+        #logging.info("<sos> mark: " + char_list[y])
         vy = h[0].new_zeros(1).long()
 
         maxlen = np.amin([h[idx].size(0) for idx in range(self.num_encs)])
@@ -389,8 +390,8 @@ class Decoder(torch.nn.Module, ScorerInterface):
             # maxlen >= 1
             maxlen = max(1, int(recog_args.maxlenratio * maxlen))
         minlen = int(recog_args.minlenratio * maxlen)
-        logging.info("max output length: " + str(maxlen))
-        logging.info("min output length: " + str(minlen))
+        #logging.info("max output length: " + str(maxlen))
+        #logging.info("min output length: " + str(minlen))
 
         # initialize hypothesis
         if rnnlm:
@@ -585,7 +586,7 @@ class Decoder(torch.nn.Module, ScorerInterface):
 
             # end detection
             if end_detect(ended_hyps, i) and recog_args.maxlenratio == 0.0:
-                logging.info("end detected at %d", i)
+                #logging.info("end detected at %d", i)
                 break
 
             hyps = remained_hyps
@@ -620,11 +621,11 @@ class Decoder(torch.nn.Module, ScorerInterface):
             else:
                 return self.recognize_beam(h, lpz, recog_args, char_list, rnnlm)
 
-        logging.info("total log probability: " + str(nbest_hyps[0]["score"]))
-        logging.info(
-            "normalized log probability: "
-            + str(nbest_hyps[0]["score"] / len(nbest_hyps[0]["yseq"]))
-        )
+        #logging.info("total log probability: " + str(nbest_hyps[0]["score"]))
+        # logging.info(
+        #     "normalized log probability: "
+        #     + str(nbest_hyps[0]["score"] / len(nbest_hyps[0]["yseq"]))
+        # )
 
         # remove sos
         return nbest_hyps

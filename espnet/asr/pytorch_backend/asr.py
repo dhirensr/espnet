@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import sys
+import time
 
 from chainer import reporter as reporter_module
 from chainer import training
@@ -814,6 +815,7 @@ def train(args):
     check_early_stop(trainer, args.epochs)
 
 
+
 def recog(args):
     """Decode with the given args.
 
@@ -825,12 +827,20 @@ def recog(args):
     model, train_args = load_trained_model(args.model)
     assert isinstance(model, ASRInterface)
     model.recog_args = args
+    #print(args.quantized_model,type(args.quantized_model))
+    if args.quantized_model == "True" or args.quantized_model == True:
+        print('here inside here')
+        model = torch.quantization.quantize_dynamic(
+            model
+        )
+
 
     if args.streaming_mode and "transformer" in train_args.model_module:
         raise NotImplementedError("streaming mode for transformer is not implemented")
 
     # read rnnlm
     if args.rnnlm:
+        #print('RNNLM')
         rnnlm_args = get_model_conf(args.rnnlm, args.rnnlm_conf)
         if getattr(rnnlm_args, "model_module", "default") != "default":
             raise ValueError(
@@ -850,6 +860,7 @@ def recog(args):
         rnnlm = None
 
     if args.word_rnnlm:
+        #print('word RNNLM')
         rnnlm_args = get_model_conf(args.word_rnnlm, args.word_rnnlm_conf)
         word_dict = rnnlm_args.char_list_dict
         char_dict = {x: i for i, x in enumerate(train_args.char_list)}
@@ -879,6 +890,7 @@ def recog(args):
 
     # gpu
     if args.ngpu == 1:
+        #print('GPU used')
         gpu_id = list(range(args.ngpu))
         logging.info("gpu id: " + str(gpu_id))
         model.cuda()
@@ -901,9 +913,10 @@ def recog(args):
     )
 
     if args.batchsize == 0:
+        #print('batchsize ==0')
         with torch.no_grad():
             for idx, name in enumerate(js.keys(), 1):
-                logging.info("(%d/%d) decoding " + name, idx, len(js.keys()))
+                #logging.info("(%d/%d) decoding " + name, idx, len(js.keys()))
                 batch = [(name, js[name])]
                 feat = load_inputs_and_targets(batch)
                 feat = (
@@ -951,19 +964,25 @@ def recog(args):
                             ).strip()  # for SentencePiece
                             text = text.replace(model.space, " ")
                             text = text.replace(model.blank, "")
-                            logging.info(text)
+                            #logging.info(text)
                             for n in range(args.nbest):
                                 nbest_hyps[n]["yseq"].extend(hyps[n]["yseq"])
                                 nbest_hyps[n]["score"] += hyps[n]["score"]
                 else:
+                    eval_start_time = time.time()
                     nbest_hyps = model.recognize(
                         feat, args, train_args.char_list, rnnlm
                     )
+                    eval_end_time = time.time() #inference time end
                 new_js[name] = add_results_to_json(
                     js[name], nbest_hyps, train_args.char_list
                 )
+        eval_duration_time = eval_end_time - eval_start_time
+        print("Evaluate total time (seconds): {0:.1f}".format(eval_duration_time))
+
 
     else:
+        #print('batchesize > 0')
 
         def grouper(n, iterable, fillvalue=None):
             kargs = [iter(iterable)] * n
@@ -975,6 +994,8 @@ def recog(args):
             feat_lens = [js[key]["input"][0]["shape"][0] for key in keys]
             sorted_index = sorted(range(len(feat_lens)), key=lambda i: -feat_lens[i])
             keys = [keys[i] for i in sorted_index]
+        # inference time recording start
+
 
         with torch.no_grad():
             for names in grouper(args.batchsize, keys, None):
@@ -1017,15 +1038,20 @@ def recog(args):
                                 nbest_hyps[n]["score"] += hyps[n]["score"]
                     nbest_hyps = [nbest_hyps]
                 else:
+                    eval_start_time = time.time()
                     nbest_hyps = model.recognize_batch(
                         feats, args, train_args.char_list, rnnlm=rnnlm
                     )
+                    eval_end_time = time.time() #inference time end
 
                 for i, nbest_hyp in enumerate(nbest_hyps):
                     name = names[i]
                     new_js[name] = add_results_to_json(
                         js[name], nbest_hyp, train_args.char_list
                     )
+        eval_duration_time = eval_end_time - eval_start_time
+        print("Inference total time (seconds): {0:.1f}".format(eval_duration_time))
+
 
     with open(args.result_label, "wb") as f:
         f.write(

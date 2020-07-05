@@ -29,6 +29,7 @@ def get_parser():
     )
     # general configuration
     parser.add("--config", is_config_file=True, help="Config file path")
+    parser.add("--quantized_model",required=False,default=False, help="Boolean to indicate whether models needs to be dynamic quantized")
     parser.add(
         "--config2",
         is_config_file=True,

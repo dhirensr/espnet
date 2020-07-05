@@ -327,7 +327,7 @@ class E2E(ASRInterface, torch.nn.Module):
 
         h = enc_output.squeeze(0)
 
-        logging.info("input lengths: " + str(h.size(0)))
+        #logging.info("input lengths: " + str(h.size(0)))
         # search parms
         beam = recog_args.beam_size
         penalty = recog_args.penalty
@@ -343,8 +343,8 @@ class E2E(ASRInterface, torch.nn.Module):
             # maxlen >= 1
             maxlen = max(1, int(recog_args.maxlenratio * h.size(0)))
         minlen = int(recog_args.minlenratio * h.size(0))
-        logging.info("max output length: " + str(maxlen))
-        logging.info("min output length: " + str(minlen))
+        #logging.info("max output length: " + str(maxlen))
+        #logging.info("min output length: " + str(minlen))
 
         # initialize hypothesis
         if rnnlm:
@@ -474,7 +474,7 @@ class E2E(ASRInterface, torch.nn.Module):
             # end detection
 
             if end_detect(ended_hyps, i) and recog_args.maxlenratio == 0.0:
-                logging.info("end detected at %d", i)
+                #logging.info("end detected at %d", i)
                 break
 
             hyps = remained_hyps
@@ -507,11 +507,11 @@ class E2E(ASRInterface, torch.nn.Module):
             recog_args.minlenratio = max(0.0, recog_args.minlenratio - 0.1)
             return self.recognize(x, recog_args, char_list, rnnlm)
 
-        logging.info("total log probability: " + str(nbest_hyps[0]["score"]))
-        logging.info(
-            "normalized log probability: "
-            + str(nbest_hyps[0]["score"] / len(nbest_hyps[0]["yseq"]))
-        )
+        #logging.info("total log probability: " + str(nbest_hyps[0]["score"]))
+        # logging.info(
+        #     "normalized log probability: "
+        #     + str(nbest_hyps[0]["score"] / len(nbest_hyps[0]["yseq"]))
+        # )
         return nbest_hyps
 
     def calculate_all_attentions(self, xs_pad, ilens, ys_pad):

@@ -14,7 +14,7 @@ ngpu=1         # number of gpus ("0" uses cpu, otherwise use gpu)
 debugmode=1
 dumpdir=dump   # directory to dump full features
 N=0            # number of minibatches to be used (mainly for debugging). "0" uses all minibatches.
-verbose=0      # verbose option
+verbose=1      # verbose option
 resume=        # Resume the training from snapshot
 seed=1
 
@@ -22,13 +22,13 @@ seed=1
 do_delta=false
 
 # sample filtering
-min_io_delta=4  # samples with `len(input) - len(output) * min_io_ratio < min_io_delta` will be removed.
+min_io_delta=16  # samples with `len(input) - len(output) * min_io_ratio < min_io_delta` will be removed.
 
 # config files
-preprocess_config=conf/no_preprocess.yaml  # use conf/specaug.yaml for data augmentation
-train_config=conf/train.yaml
+preprocess_config=conf/specaug.yaml  # use conf/specaug.yaml for data augmentation
+train_config=conf/tuning/train_pytorch_transformer.yaml
 lm_config=conf/lm.yaml
-decode_config=conf/decode.yaml
+decode_config=conf/tuning/decode_pytorch_transformer.yaml
 
 # rnnlm related
 use_wordlm=true     # false means to train/use a character LM
@@ -41,11 +41,11 @@ n_average=10 # use 1 for RNN models
 recog_model=model.acc.best # set a model to be used for decoding: 'model.acc.best' or 'model.loss.best'
 
 # data
-wsj0=/export/corpora5/LDC/LDC93S6B
-wsj1=/export/corpora5/LDC/LDC94S13B
+wsj0=/resources/asr-data/WSJ0
+wsj1=/resources/asr-data/WSJ1
 
 # exp tag
-tag="" # tag for managing experiments.
+tag="with_specaug_and_transformer_and_qat" # tag for managing experiments.
 
 . utils/parse_options.sh || exit 1;
 
@@ -244,7 +244,7 @@ fi
 
 if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     echo "stage 5: Decoding"
-    nj=32
+    nj=16
     if [[ $(get_yaml.py ${train_config} model-module) = *transformer* ]]; then
         recog_model=model.last${n_average}.avg.best
         average_checkpoints.py --backend ${backend} \
@@ -278,7 +278,8 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             --recog-json ${feat_recog_dir}/split${nj}utt/data.JOB.json \
             --result-label ${expdir}/${decode_dir}/data.JOB.json \
             --model ${expdir}/results/${recog_model}  \
-            ${recog_opts}
+            --quantized_model True \
+            #${recog_opts}
 
         score_sclite.sh --wer true --nlsyms ${nlsyms} ${expdir}/${decode_dir} ${dict}
 
