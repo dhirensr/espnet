@@ -330,6 +330,12 @@ def get_parser(parser=None, required=True):
         help="Number of samples of attention to be saved",
     )
     parser.add_argument(
+        "--qat",
+        default='False',
+        type=str,
+        help="Quantization aware training enabled/disabled",
+    )
+    parser.add_argument(
         "--grad-noise",
         type=strtobool,
         default=False,

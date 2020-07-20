@@ -22,6 +22,7 @@ import numpy as np
 from tensorboardX import SummaryWriter
 import torch
 from torch.nn.parallel import data_parallel
+from torchsummary import summary
 
 from espnet.asr.asr_utils import adadelta_eps_decay
 from espnet.asr.asr_utils import add_results_to_json
@@ -56,6 +57,7 @@ from espnet.utils.training.iterators import ShufflingEnabler
 from espnet.utils.training.tensorboard_logger import TensorboardLogger
 from espnet.utils.training.train_utils import check_early_stop
 from espnet.utils.training.train_utils import set_early_stop
+import time
 
 import matplotlib
 
@@ -165,6 +167,7 @@ class CustomUpdater(StandardUpdater):
         grad_noise=False,
         accum_grad=1,
         use_apex=False,
+        qat = 'False',
     ):
         super(CustomUpdater, self).__init__(train_iter, optimizer)
         self.model = model
@@ -176,6 +179,7 @@ class CustomUpdater(StandardUpdater):
         self.grad_noise = grad_noise
         self.iteration = 0
         self.use_apex = use_apex
+        self.qat = qat
 
     # The core part of the update routine can be customized by overriding.
     def update_core(self):
@@ -185,6 +189,17 @@ class CustomUpdater(StandardUpdater):
         train_iter = self.get_iterator("main")
         optimizer = self.get_optimizer("main")
         epoch = train_iter.epoch
+        if self.qat== 'True':
+            logging.info('Using Quantization Aware Training - inside customeupdater')
+            #logging.info(epoch)
+            if epoch > 3:
+                logging.info('QAT - epoch 3')
+            # Freeze quantizer parameters
+                self.model.apply(torch.quantization.disable_observer)
+            if epoch > 2:
+                logging.info('QAT - epoch 2')
+                # Freeze batch norm mean and variance estimates
+                self.model.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
 
         # Get the next batch (a list of json files)
         batch = train_iter.next()
@@ -384,6 +399,24 @@ class CustomConverterMulEnc(object):
 
         return xs_list_pad, ilens_list, ys_pad
 
+def fuse_model(model):
+    logging.info('inside fusing function')
+    logging.info(str(model))
+    modules_to_fuse = [ ['encoder.embed.conv.0',"encoder.embed.conv.1"],['encoder.embed.conv.2',"encoder.embed.conv.3"],]
+    fused_model = torch.quantization.fuse_modules(model,modules_to_fuse)
+    logging.info('Fused model')
+    logging.info(str(fused_model))
+    #torch.jit.save(torch.jit.script(fused_model),
+    # torch.save(fused_model.state_dict(),"/home/users2/seraidn/quantized_models/"+str(int(time.time()))+".best" )
+    return fused_model
+        # for m in model.modules():
+        #     #modules.append(m)
+        #     logging.info(m)
+        # f=open('/mount/arbeitsdaten/asr-4/seraidn/espnet/egs/wsj/asr1/modules.txt','w')
+        # for m in modules:
+        #     f.write(str(m)+'\n')
+        # f.close()
+
 
 def train(args):
     """Train with the given args.
@@ -481,6 +514,15 @@ def train(args):
         dtype = torch.float32
     model = model.to(device=device, dtype=dtype)
 
+    modules = []
+
+
+
+    if args.qat == 'True':
+        logging.info('Using Quantization Aware Training model')
+        fuse_model(model)
+        #model.qconfig = torch.quantization.get_default_qat_qconfig('fbgemm')
+
     # Setup an optimizer
     if args.opt == "adadelta":
         optimizer = torch.optim.Adadelta(
@@ -544,6 +586,10 @@ def train(args):
         valid_json = json.load(f)["utts"]
 
     use_sortagrad = args.sortagrad == -1 or args.sortagrad > 0
+
+    if args.qat == 'True':
+        logging.info('Using Quantization Aware Training model')
+        torch.quantization.prepare_qat(model, inplace=True)
     # make minibatch list (variable length)
     train = make_batchset(
         train_json,
@@ -619,8 +665,17 @@ def train(args):
         args.grad_noise,
         args.accum_grad,
         use_apex=use_apex,
+        qat = args.qat
     )
     trainer = training.Trainer(updater, (args.epochs, "epoch"), out=args.outdir)
+
+
+    #logging.info('trainer info printing')
+    #logging.info(trainer)
+    #logging.info(type(trainer))
+    #logging.info(trainer.__dict__)
+    #logging.info('fusing')
+    #logging.info(model.__dict__)
 
     if use_sortagrad:
         trainer.extend(
@@ -815,6 +870,52 @@ def train(args):
     check_early_stop(trainer, args.epochs)
 
 
+def evaluate(model,js,train_args,args,rnnlm,neval_batches):
+    model.eval()
+    cnt =0
+    load_inputs_and_targets = LoadInputsAndTargets(
+        mode="asr",
+        load_output=False,
+        sort_in_input_length=False,
+        preprocess_conf=train_args.preprocess_conf
+        if args.preprocess_conf is None
+        else args.preprocess_conf,
+        preprocess_args={"train": False},
+    )
+    with torch.no_grad():
+        for idx, name in enumerate(js.keys(), 1):
+            #logging.info("(%d/%d) decoding " + name, idx, len(js.keys()))
+            batch = [(name, js[name])]
+            cnt+=1
+            feat = load_inputs_and_targets(batch)
+            feat = (
+                feat[0][0]
+                    if args.num_encs == 1
+                    else [feat[idx][0] for idx in range(model.num_encs)]
+            )
+            if cnt>= neval_batches:
+                return
+            nbest_hyps = model.recognize(
+                feat, args, train_args.char_list, rnnlm
+            )
+
+
+
+def makeQConfig(activation_scheme,weight_scheme):
+    dynamic_quant_observer = torch.quantization.observer.PerChannelMinMaxObserver.with_args(dtype=torch.qint8, qscheme=torch.per_channel_affine)
+    dynamic_quant_observer.qscheme = torch.per_tensor_symmetric
+    default_weight_observer = torch.quantization.observer.PerChannelMinMaxObserver.with_args(dtype=torch.qint8, qscheme=torch.per_channel_affine)
+    #config = torch.quantization.qconfig.QConfigDynamic(activation = torch.quantization.observer.default_dynamic_quant_observer, weight = default_weight_observer)
+    config = torch.quantization.per_channel_dynamic_qconfig
+
+    config_spec = {
+        torch.nn.Linear : config,
+        torch.nn.LSTM : config,
+    }
+    return config_spec
+
+
+
 
 def recog(args):
     """Decode with the given args.
@@ -830,10 +931,15 @@ def recog(args):
     #print(args.quantized_model,type(args.quantized_model))
     if args.quantized_model == "True" or args.quantized_model == True:
         print('here inside here')
+        #model = fuse_model(model)
+        config_spec = makeQConfig("","")
         model = torch.quantization.quantize_dynamic(
-            model
+            model,
+            qconfig_spec = config_spec,
         )
 
+        logging.info(model.__dict__)
+        logging.info(str(model))
 
     if args.streaming_mode and "transformer" in train_args.model_module:
         raise NotImplementedError("streaming mode for transformer is not implemented")

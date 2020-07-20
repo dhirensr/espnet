@@ -272,6 +272,7 @@ def main(args):
                         raise NotImplementedError(
                             f"`--dtype {args.dtype}` is only available with `--api v2`"
                         )
+                    print('heree2')
                     recog(args)
             else:
                 if args.api == "v2":

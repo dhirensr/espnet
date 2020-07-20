@@ -122,6 +122,9 @@ class Trainer:
         trainer_options,
         distributed_option: DistributedOption,
     ) -> None:
+
+        print('here i am ')
+        print(trainer_options,seed)
         """Perform training. This method performs the main process of training."""
         assert check_argument_types()
         # NOTE(kamo): Don't check the type more strictly as far trainer_options
@@ -232,6 +235,13 @@ class Trainer:
                             reporter=sub_reporter,
                             options=trainer_options,
                         )
+            if nepoch > 3:
+                # Freeze quantizer parameters
+                model.apply(torch.quantization.disable_observer)
+            if nepoch > 2:
+            # Freeze batch norm mean and variance estimates
+                model.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
+
 
             # 2. LR Scheduler step
             for scheduler in schedulers:
